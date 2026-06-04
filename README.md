@@ -129,6 +129,10 @@ tracer = Tracer(storage=MyStorage())
 
 AMS never throws into your agent: hook and storage failures are logged, not raised.
 
+## How it works
+
+See [`docs/architecture.md`](docs/architecture.md) for the module map and the two-channel design (hooks + message stream) that AMS fuses into one session.
+
 ## Schema
 
 See [`docs/schema.md`](docs/schema.md) for the full session JSON schema with an example. The contract lives in one file: [`ams/schema.py`](ams/schema.py).
