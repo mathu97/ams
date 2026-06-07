@@ -1,0 +1,26 @@
+name: Publish to PyPI
+
+# Publishes ams-monitor to PyPI when a GitHub Release is published.
+# Uses PyPI Trusted Publishing (OIDC) — no API token is stored anywhere.
+# One-time setup on PyPI: add a trusted publisher for project `ams-monitor`
+# pointing at owner `mathu97`, repo `ams`, workflow `release.yml`.
+#
+# To cut a release: bump `version` in pyproject.toml, then create a GitHub
+# Release (tag like v0.1.0). Publishing runs automatically.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # required for trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
