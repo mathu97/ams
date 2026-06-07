@@ -1,5 +1,5 @@
 [project]
-name = "ams-py"
+name = "ams-observability"
 version = "0.1.0"
 description = "A super simple monitoring system for Claude agents — full session traces as JSON in blob storage."
 readme = "README.md"

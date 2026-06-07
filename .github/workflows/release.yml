@@ -1,9 +1,9 @@
 name: Publish to PyPI
 
-# Publishes ams-py to PyPI when a GitHub Release is published.
+# Publishes ams-observability to PyPI when a GitHub Release is published.
 # Uses PyPI Trusted Publishing (OIDC) — no API token is stored anywhere.
-# One-time setup on PyPI: add a trusted publisher for project `ams-py`
-# pointing at owner `mathu97`, repo `ams`, workflow `release.yml`.
+# One-time setup on PyPI: add a trusted publisher for project
+# `ams-observability` (owner `mathu97`, repo `ams`, workflow `release.yml`).
 #
 # To cut a release: bump `version` in pyproject.toml, then create a GitHub
 # Release (tag like v0.1.0). Publishing runs automatically.
