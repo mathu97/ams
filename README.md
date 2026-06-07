@@ -37,8 +37,10 @@ The Claude Agent SDK has **no built-in OpenTelemetry** — AMS captures everythi
 ## Install
 
 ```bash
-pip install -e ".[s3]"     # with the S3 backend
+pip install "ams-py[s3]"     # published name is ams-py; you import it as `ams`
 ```
+
+Or from a local checkout: `pip install -e ".[s3]"`.
 
 Requires Python 3.10+ and the [`claude-agent-sdk`](https://pypi.org/project/claude-agent-sdk/) in your project.
 
