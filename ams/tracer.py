@@ -276,6 +276,8 @@ class Tracer:
     # ---- message stream ----------------------------------------------------
 
     def record_message(self, msg: Any) -> None:
+        """Record one streamed message. Never raises — failures are logged so
+        monitoring can never abort the host agent's loop."""
         try:
             self._see_session_id(msg)
             kind = type(msg).__name__
@@ -331,34 +333,43 @@ class Tracer:
 
     # ---- finalize ----------------------------------------------------------
 
-    def finish(self, status: Optional[Status] = None) -> Session:
+    def finish(self, status: Optional[Status] = None) -> Optional[Session]:
+        """Build and persist the session. Never raises — like any observability
+        SDK, a failure here logs and is swallowed rather than propagating into
+        the host agent. Returns the Session (None only if it couldn't be built).
+        """
         if self._finished is not None:
             return self._finished
 
-        events = sorted(self._events, key=lambda e: e.seq)
-        totals = self._compute_totals(events)
-        wall_ms = int((time.monotonic() - self._t0) * 1000)
-        if status is None:
-            errored = any(e.status == Status.ERROR for e in events)
-            if self._result is not None and _attr(self._result, "is_error"):
-                errored = True
-            status = Status.ERROR if errored else Status.OK
+        try:
+            events = sorted(self._events, key=lambda e: e.seq)
+            totals = self._compute_totals(events)
+            wall_ms = int((time.monotonic() - self._t0) * 1000)
+            if status is None:
+                errored = any(e.status == Status.ERROR for e in events)
+                if self._result is not None and _attr(self._result, "is_error"):
+                    errored = True
+                status = Status.ERROR if errored else Status.OK
 
-        session = Session(
-            session_id=self.session_id or self.trace_id,
-            trace_id=self.trace_id,
-            agent=self.agent,
-            environment=self.environment,
-            tags=self.tags,
-            metadata=self.metadata,
-            start_time=self.start_time,
-            end_time=_now_iso(),
-            duration_ms=totals.duration_ms or wall_ms,
-            status=status,
-            totals=totals,
-            events=events,
-        )
-        self._finished = session
+            session = Session(
+                session_id=self.session_id or self.trace_id,
+                trace_id=self.trace_id,
+                agent=self.agent,
+                environment=self.environment,
+                tags=self.tags,
+                metadata=self.metadata,
+                start_time=self.start_time,
+                end_time=_now_iso(),
+                duration_ms=totals.duration_ms or wall_ms,
+                status=status,
+                totals=totals,
+                events=events,
+            )
+            self._finished = session
+        except Exception:
+            logger.exception("ams: failed to build session")
+            return None
+
         try:
             location = self.storage.put_session(session)
             logger.info("ams: wrote session %s -> %s", session.session_id, location)

@@ -233,3 +233,21 @@ def test_finish_is_idempotent():
 def test_usage_from_sdk_handles_none():
     u = Usage.from_sdk(None)
     assert u.input_tokens == 0
+
+
+def test_finish_never_raises_on_storage_failure():
+    class BoomStorage:
+        def put_session(self, session):
+            raise RuntimeError("s3 down")
+
+    t = Tracer(storage=BoomStorage())
+    t.record_message(ResultMessage(total_cost_usd=0.01))
+    session = t.finish()  # must not raise despite storage blowing up
+    assert session is not None
+    assert session.totals.cost_usd == 0.01
+
+
+def test_record_message_never_raises_on_unknown_message():
+    t = Tracer(storage=RecordingStorage())
+    t.record_message(object())  # unknown type — must be swallowed
+    assert t.finish() is not None

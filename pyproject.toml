@@ -1,6 +1,6 @@
 [project]
 name = "ams-observability"
-version = "0.1.0"
+version = "0.1.1"
 description = "A super simple monitoring system for Claude agents — full session traces as JSON in blob storage."
 readme = "README.md"
 requires-python = ">=3.10"
