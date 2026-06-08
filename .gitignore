@@ -11,3 +11,9 @@ venv/
 .ruff_cache/
 ams-data/
 .DS_Store
+.pnpm-store/
+
+# Dashboard (Next.js)
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.env*.local
