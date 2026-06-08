@@ -19,7 +19,7 @@ function aggregateAgents(sessions: Session[]): AgentSummary[] {
     const tags = Array.from(new Set(list.flatMap((s) => s.tags))).sort()
     const last_active = list
       .map((s) => s.start_time)
-      .sort((a, b) => new Date(b).getTime() - new Date(a.getTime()))[0]
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0]
 
     summaries.push({
       name,
