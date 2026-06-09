@@ -13,16 +13,25 @@ cost — as one readable JSON object in blob storage.
 from .schema import (
     SCHEMA_VERSION,
     Agent,
+    DelegationKind,
     Event,
     EventType,
+    GraphEdge,
+    GraphEdgeKind,
+    GraphNode,
+    AgentGraph,
+    Manifest,
+    ManifestSource,
     Session,
     Status,
+    ToolKind,
+    Topology,
     Totals,
     Usage,
 )
 from .tracer import Tracer
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Tracer",
@@ -33,6 +42,15 @@ __all__ = [
     "Totals",
     "Usage",
     "Agent",
+    "Manifest",
+    "AgentGraph",
+    "GraphNode",
+    "GraphEdge",
+    "GraphEdgeKind",
+    "ManifestSource",
+    "Topology",
+    "ToolKind",
+    "DelegationKind",
     "SCHEMA_VERSION",
     "__version__",
 ]

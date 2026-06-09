@@ -29,6 +29,8 @@ export type Event = {
   duration_ms?: number | null
   status: Status
   note?: string
+  scope?: string | null
+  agent_id?: string | null
   prompt?: string
   llm?: {
     model?: string
@@ -40,6 +42,7 @@ export type Event = {
   }
   tool?: {
     name: string
+    kind?: string
     tool_use_id?: string
     input?: unknown
     result?: unknown
@@ -51,7 +54,26 @@ export type Event = {
     invocation_prompt?: string
     invocation_event_id?: string
     transcript_path?: string
+    delegation_kind?: string
+    spawn_tool_use_id?: string
+    target_agent?: string
   }
+}
+
+export type Topology = {
+  agents_used: string[]
+  tools_by_agent: Record<string, string[]>
+  mcp_tools_used: { server: string; tool: string; calls: number; errors: number }[]
+  models_by_agent: Record<string, string>
+  delegation_edges: {
+    from_agent: string
+    to_agent: string
+    kind: string
+    trigger_tool_use_id?: string
+    subagent_event_id?: string
+    status?: Status
+  }[]
+  errors_by_agent: Record<string, number>
 }
 
 export type Session = {
@@ -67,6 +89,8 @@ export type Session = {
   status: Status
   totals: Totals
   events: Event[]
+  manifest?: import("@/lib/types/graph").Manifest
+  topology?: Topology
 }
 
 export type AgentSummary = {
@@ -100,4 +124,5 @@ export type SessionIndex = {
   tool_calls?: number
   subagents?: number
   errors?: number
+  topology_summary?: import("@/lib/types/graph").TopologySummary
 }

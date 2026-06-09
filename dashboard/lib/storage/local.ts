@@ -10,7 +10,7 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
   return JSON.parse(body) as T
 }
 
-export async function listSessionsFromLocal(): Promise<Session[]> {
+export async function listSessionIndexesFromLocal(): Promise<SessionIndex[]> {
   const root = getLocalDir()
   const indexDir = path.join(root, "index")
   let files: string[]
@@ -19,12 +19,15 @@ export async function listSessionsFromLocal(): Promise<Session[]> {
   } catch {
     return []
   }
-
-  const indexes = await Promise.all(
+  return Promise.all(
     files
       .filter((file) => file.endsWith(".json"))
       .map((file) => readJsonFile<SessionIndex>(path.join(indexDir, file))),
   )
+}
+
+export async function listSessionsFromLocal(): Promise<Session[]> {
+  const indexes = await listSessionIndexesFromLocal()
   return indexes.map(indexToSession)
 }
 

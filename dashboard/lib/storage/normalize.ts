@@ -1,4 +1,5 @@
 import type { Event, Session, SessionIndex, Status } from "@/lib/types"
+import type { Manifest } from "@/lib/types/graph"
 
 function asStatus(value: unknown): Status {
   return value === "error" ? "error" : "ok"
@@ -75,6 +76,8 @@ export function parseSession(raw: unknown): Session {
       ...event,
       status: asStatus(event.status),
     })),
+    manifest: data.manifest as Manifest | undefined,
+    topology: data.topology as Session["topology"],
   }
 }
 

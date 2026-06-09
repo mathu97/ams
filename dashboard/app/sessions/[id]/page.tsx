@@ -2,11 +2,13 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { TopBar } from "@/components/top-bar"
+import { AgentDiagram } from "@/components/agent-diagram"
 import { SessionHeader } from "@/components/session-header"
 import { StatCards } from "@/components/stat-cards"
 import { Timeline } from "@/components/timeline"
 import { getSession } from "@/lib/data"
-import { buildTimeline } from "@/lib/timeline"
+import { buildSessionDiagram } from "@/lib/session-diagram"
+import { buildTimelineSections, groupTimelineSections } from "@/lib/timeline"
 
 export const dynamic = "force-dynamic"
 
@@ -19,7 +21,8 @@ export default async function SessionDetailPage({
   const session = await getSession(id)
   if (!session) notFound()
 
-  const nodes = buildTimeline(session)
+  const groups = groupTimelineSections(buildTimelineSections(session))
+  const diagram = buildSessionDiagram(session)
 
   return (
     <main className="min-h-screen">
@@ -35,7 +38,8 @@ export default async function SessionDetailPage({
 
         <SessionHeader session={session} />
         <StatCards session={session} />
-        <Timeline nodes={nodes} />
+        {diagram && <AgentDiagram data={diagram} />}
+        <Timeline groups={groups} />
       </div>
     </main>
   )

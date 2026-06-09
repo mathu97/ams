@@ -23,10 +23,13 @@ from . import pricing
 from .redact import redact as _redact
 from .schema import (
     Agent,
+    DelegationKind,
     ErrorDetail,
     Event,
     EventType,
     LLMDetail,
+    Manifest,
+    SCHEMA_VERSION,
     Session,
     Status,
     SubagentDetail,
@@ -34,6 +37,8 @@ from .schema import (
     Totals,
     Usage,
 )
+from .manifest.tools import classify_tool
+from .manifest.topology import agent_scope, compute_topology, root_agent_name
 
 logger = logging.getLogger("ams")
 
@@ -86,6 +91,25 @@ class Tracer:
         self._pending_invocations: list[Event] = []
         self._result: Optional[Any] = None
         self._finished: Optional[Session] = None
+        self._manifest: Optional[Manifest] = None
+
+    def set_manifest(self, manifest: Manifest) -> None:
+        """Attach declared agent topology captured at session start."""
+        self._manifest = manifest
+
+    @property
+    def manifest(self) -> Optional[Manifest]:
+        return self._manifest
+
+    def _root_scope(self) -> str:
+        return agent_scope(root_agent_name(self.agent))
+
+    def _scope_for_agent_id(self, agent_id: Optional[str]) -> str:
+        if agent_id and agent_id in self._open_subagents:
+            sub = self._open_subagents[agent_id]
+            if sub.subagent and sub.subagent.agent_type:
+                return agent_scope(sub.subagent.agent_type)
+        return self._root_scope()
 
     @property
     def storage(self):
@@ -155,6 +179,8 @@ class Tracer:
         tool_use_id = _attr(hi, "tool_use_id")
         agent_id = _attr(hi, "agent_id")
         parent = self._open_subagents.get(agent_id) if agent_id else None
+        classified = classify_tool(tool_name, self._manifest)
+        scope = self._scope_for_agent_id(agent_id)
         event = Event(
             id=uuid.uuid4().hex,
             seq=self._next_seq(),
@@ -163,10 +189,13 @@ class Tracer:
             name=f"tool:{tool_name}",
             start_time=_now_iso(),
             status=Status.RUNNING,
-            tool=ToolDetail(
-                name=tool_name,
-                tool_use_id=tool_use_id,
-                input=self._clean(_attr(hi, "tool_input")),
+            scope=scope,
+            agent_id=agent_id,
+            tool=classified.model_copy(
+                update={
+                    "tool_use_id": tool_use_id,
+                    "input": self._clean(_attr(hi, "tool_input")),
+                }
             ),
         )
         if tool_name in _SUBAGENT_TOOLS:
@@ -209,12 +238,20 @@ class Tracer:
         agent_id = _attr(hi, "agent_id")
         agent_type = _attr(hi, "agent_type")
         invocation = self._pop_invocation(agent_type)
-        detail = SubagentDetail(agent_id=agent_id, agent_type=agent_type)
+        detail = SubagentDetail(
+            agent_id=agent_id,
+            agent_type=agent_type,
+            delegation_kind=DelegationKind.INVOKE,
+            target_agent=agent_type,
+        )
         if invocation:
             detail.invocation_event_id = invocation.id
+            if invocation.tool:
+                detail.spawn_tool_use_id = invocation.tool.tool_use_id
             ti = invocation.tool.input if invocation.tool else None
             if isinstance(ti, dict):
                 detail.invocation_prompt = ti.get("prompt") or ti.get("description")
+        child_scope = agent_scope(agent_type or "agent")
         event = Event(
             id=uuid.uuid4().hex,
             seq=self._next_seq(),
@@ -222,6 +259,8 @@ class Tracer:
             name=f"subagent:{agent_type or 'agent'}",
             start_time=_now_iso(),
             status=Status.RUNNING,
+            scope=child_scope,
+            agent_id=agent_id,
             subagent=detail,
         )
         if agent_id:
@@ -255,6 +294,7 @@ class Tracer:
                 name="user_prompt",
                 start_time=ts,
                 end_time=ts,
+                scope=self._root_scope(),
                 prompt=self._clean(_attr(hi, "prompt")),
             )
         )
@@ -269,6 +309,7 @@ class Tracer:
                 name="notification",
                 start_time=ts,
                 end_time=ts,
+                scope=self._root_scope(),
                 note=_attr(hi, "message"),
             )
         )
@@ -311,6 +352,8 @@ class Tracer:
                 name="assistant",
                 start_time=ts,
                 end_time=ts,
+                scope=self._scope_for_agent_id(_attr(msg, "agent_id")),
+                agent_id=_attr(msg, "agent_id"),
                 llm=LLMDetail(
                     model=_attr(msg, "model"),
                     stop_reason=_attr(msg, "stop_reason"),
@@ -352,6 +395,7 @@ class Tracer:
                 status = Status.ERROR if errored else Status.OK
 
             session = Session(
+                schema_version=SCHEMA_VERSION,
                 session_id=self.session_id or self.trace_id,
                 trace_id=self.trace_id,
                 agent=self.agent,
@@ -362,6 +406,10 @@ class Tracer:
                 end_time=_now_iso(),
                 duration_ms=totals.duration_ms or wall_ms,
                 status=status,
+                manifest=self._manifest,
+                topology=compute_topology(
+                    events, agent=self.agent, manifest=self._manifest
+                ),
                 totals=totals,
                 events=events,
             )

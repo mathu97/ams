@@ -12,7 +12,7 @@ One session is one JSON object. The contract lives in [`ams/schema.py`](../ams/s
 
 | Field | Type | Notes |
 |---|---|---|
-| `schema_version` | string | currently `"1.0"` |
+| `schema_version` | string | currently `"1.1"` (was `"1.0"`) |
 | `session_id` | string | the SDK session id (== `gen_ai.conversation.id`); the unit you filter a whole session by |
 | `trace_id` | string | AMS-generated id for this recording |
 | `agent` | object | `{ name, version }` |
@@ -97,3 +97,7 @@ Every event shares: `id`, `seq` (monotonic order), `parent_id` (set for tool cal
 ```
 
 `e5` is a tool call made *inside* the subagent — note `parent_id: "e4"` pointing at the subagent event. That is how subagent activity nests under its parent.
+
+## Schema 1.1 (proposed)
+
+For agent topology diagrams (declared manifest + observed rollup, MCP classification, index summaries), see [schema-1.1-topology.md](schema-1.1-topology.md). Implemented in SDK v0.2.

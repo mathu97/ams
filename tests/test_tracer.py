@@ -135,12 +135,17 @@ def test_subagent_nests_child_tools_and_links_invocation():
     assert sub.subagent.agent_type == "researcher"
     assert sub.subagent.invocation_prompt == "Go research topic X thoroughly."
     assert sub.subagent.transcript_path == "/tmp/agent-1.jsonl"
+    assert sub.subagent.spawn_tool_use_id == "task1"
+    assert sub.scope == "agent:researcher"
 
     child = next(
         e for e in session.events if e.type == EventType.TOOL_CALL and e.tool.name == "Read"
     )
     assert child.parent_id == sub.id
+    assert child.scope == "agent:researcher"
     assert session.totals.subagents == 1
+    assert session.schema_version == "1.1"
+    assert session.topology is not None
 
 
 def test_assistant_message_captures_thinking_and_text():

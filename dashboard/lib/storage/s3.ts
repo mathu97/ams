@@ -10,7 +10,7 @@ import { indexToSession, parseSession, sessionObjectKey } from "./normalize"
 
 let client: S3Client | undefined
 
-function getClient(): S3Client {
+export function getClient(): S3Client {
   if (client) return client
   const { region, endpoint } = getS3Config()
   client = new S3Client({
@@ -20,7 +20,7 @@ function getClient(): S3Client {
   return client
 }
 
-async function readObject(key: string): Promise<string> {
+export async function readObject(key: string): Promise<string> {
   const { bucket } = getS3Config()
   const response = await getClient().send(
     new GetObjectCommand({ Bucket: bucket, Key: key }),
@@ -60,9 +60,13 @@ async function readIndex(key: string): Promise<SessionIndex> {
   return JSON.parse(await readObject(key)) as SessionIndex
 }
 
-export async function listSessionsFromS3(): Promise<Session[]> {
+export async function listSessionIndexesFromS3(): Promise<SessionIndex[]> {
   const keys = await listIndexKeys()
-  const indexes = await Promise.all(keys.map(readIndex))
+  return Promise.all(keys.map(readIndex))
+}
+
+export async function listSessionsFromS3(): Promise<Session[]> {
+  const indexes = await listSessionIndexesFromS3()
   return indexes.map(indexToSession)
 }
 

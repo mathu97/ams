@@ -16,6 +16,7 @@ import os
 from typing import Optional
 
 from ..schema import Session
+from .registry import agent_registry_key, build_registry_record
 
 
 class S3Storage:
@@ -63,11 +64,31 @@ class S3Storage:
         return f"{self.prefix}/index/{session.session_id}.json"
 
     def put_session(self, session: Session) -> str:
-        body = session.model_dump_json(exclude_none=True, indent=2)
+        body = session.model_dump_json(exclude_none=True, indent=2, by_alias=True)
         session_key = self._session_key(session)
         self._put(session_key, body)
         self._put(self._index_key(session), json.dumps(session.summary(), indent=2))
+        self._upsert_agent_registry(session)
         return f"s3://{self.bucket}/{session_key}"
+
+    def _upsert_agent_registry(self, session: Session) -> None:
+        agent_name = session.agent.name
+        if not agent_name:
+            return
+        key = agent_registry_key(self.prefix, agent_name)
+        existing = None
+        try:
+            existing_body = self._read(key)
+            existing = json.loads(existing_body)
+        except Exception:
+            existing = None
+        record = build_registry_record(session, existing)
+        self._put(key, json.dumps(record, indent=2))
+
+    def _read(self, key: str) -> str:
+        response = self._client.get_object(Bucket=self.bucket, Key=key)
+        body = response["Body"].read()
+        return body.decode("utf-8")
 
     def _put(self, key: str, body: str) -> None:
         self._client.put_object(

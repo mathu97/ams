@@ -2,8 +2,9 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { TopBar } from "@/components/top-bar"
+import { AgentDiagram } from "@/components/agent-diagram"
 import { SessionsTable } from "@/components/sessions-table"
-import { getAgent, getSessionsByAgent } from "@/lib/data"
+import { getAgent, getAgentDiagram, getSessionsByAgent } from "@/lib/data"
 
 export const dynamic = "force-dynamic"
 
@@ -14,6 +15,7 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
   if (!agent) notFound()
 
   const sessions = await getSessionsByAgent(agentName)
+  const diagram = await getAgentDiagram(agentName)
 
   return (
     <main className="min-h-screen">
@@ -45,6 +47,8 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
             ))}
           </div>
         </div>
+
+        {diagram && <AgentDiagram data={diagram} />}
 
         <SessionsTable sessions={sessions} title="Sessions" showAgent={false} />
       </div>

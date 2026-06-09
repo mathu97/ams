@@ -48,6 +48,7 @@ def test_local_storage_writes_session_and_index(tmp_path):
     assert index["cost_usd"] == 0.01
     assert index["tool_calls"] == 1
     assert "events" not in index
+    assert index["schema_version"] == "1.1"
 
 
 def test_summary_has_no_payloads():

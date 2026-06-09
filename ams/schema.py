@@ -12,9 +12,41 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
+
+
+class ManifestSource(str, Enum):
+    CLAUDE_AGENT_SDK = "claude_agent_sdk"
+    OPENAI_AGENTS = "openai_agents"
+    MANUAL = "manual"
+
+
+class GraphEdgeKind(str, Enum):
+    TOOL = "tool"
+    HANDOFF = "handoff"
+    INVOKE = "invoke"
+    MCP = "mcp"
+
+
+class ToolKind(str, Enum):
+    BUILTIN = "builtin"
+    FUNCTION = "function"
+    MCP = "mcp"
+    HOSTED = "hosted"
+    AGENT = "agent"
+    CUSTOM = "custom"
+
+
+class McpProvider(str, Enum):
+    LOCAL = "local"
+    HOSTED = "hosted"
+
+
+class DelegationKind(str, Enum):
+    INVOKE = "invoke"
+    HANDOFF = "handoff"
 
 
 class EventType(str, Enum):
@@ -71,10 +103,14 @@ class LLMDetail(BaseModel):
 
 class ToolDetail(BaseModel):
     name: str
+    kind: ToolKind = ToolKind.BUILTIN
     tool_use_id: Optional[str] = None
     input: Any = None
     result: Any = None
     is_error: bool = False
+    mcp_server: Optional[str] = None
+    mcp_tool: Optional[str] = None
+    mcp_provider: Optional[McpProvider] = None
 
 
 class SubagentDetail(BaseModel):
@@ -84,6 +120,9 @@ class SubagentDetail(BaseModel):
     invocation_prompt: Optional[str] = None
     invocation_event_id: Optional[str] = None
     usage: Optional[Usage] = None
+    delegation_kind: DelegationKind = DelegationKind.INVOKE
+    spawn_tool_use_id: Optional[str] = None
+    target_agent: Optional[str] = None
 
 
 class ErrorDetail(BaseModel):
@@ -101,6 +140,8 @@ class Event(BaseModel):
     end_time: Optional[str] = None
     duration_ms: Optional[int] = None
     status: Status = Status.OK
+    scope: Optional[str] = None
+    agent_id: Optional[str] = None
 
     prompt: Optional[str] = None
     llm: Optional[LLMDetail] = None
@@ -127,6 +168,70 @@ class Agent(BaseModel):
     version: Optional[str] = None
 
 
+class GraphNode(BaseModel):
+    id: str
+    kind: str  # agent | mcp_server | tool_group
+    name: str
+    role: Optional[str] = None  # root | child
+    model: Optional[str] = None
+    description: Optional[str] = None
+    tools: list[str] = Field(default_factory=list)
+    instructions_preview: Optional[str] = None
+    instructions_hash: Optional[str] = None
+    transport: Optional[str] = None
+    command: Optional[str] = None
+    args: Optional[list[str]] = None
+    url: Optional[str] = None
+
+
+class GraphEdge(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_node: str = Field(alias="from")
+    to_node: str = Field(alias="to")
+    kind: GraphEdgeKind
+    label: Optional[str] = None
+
+
+class AgentGraph(BaseModel):
+    root_id: str
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
+
+
+class Manifest(BaseModel):
+    source: ManifestSource
+    captured_at: str
+    source_version: Optional[str] = None
+    graph: AgentGraph
+    raw: Optional[dict[str, Any]] = None
+
+
+class McpToolUsage(BaseModel):
+    server: str
+    tool: str
+    calls: int = 0
+    errors: int = 0
+
+
+class DelegationEdge(BaseModel):
+    from_agent: str
+    to_agent: str
+    kind: DelegationKind
+    trigger_tool_use_id: Optional[str] = None
+    subagent_event_id: Optional[str] = None
+    status: Status = Status.OK
+
+
+class Topology(BaseModel):
+    agents_used: list[str] = Field(default_factory=list)
+    tools_by_agent: dict[str, list[str]] = Field(default_factory=dict)
+    mcp_tools_used: list[McpToolUsage] = Field(default_factory=list)
+    models_by_agent: dict[str, str] = Field(default_factory=dict)
+    delegation_edges: list[DelegationEdge] = Field(default_factory=list)
+    errors_by_agent: dict[str, int] = Field(default_factory=dict)
+
+
 class Session(BaseModel):
     schema_version: str = SCHEMA_VERSION
     session_id: str
@@ -141,12 +246,17 @@ class Session(BaseModel):
     duration_ms: Optional[int] = None
     status: Status = Status.OK
 
+    manifest: Optional[Manifest] = None
+    topology: Optional[Topology] = None
+
     totals: Totals = Field(default_factory=Totals)
     events: list[Event] = Field(default_factory=list)
 
     def summary(self) -> dict[str, Any]:
         """A compact, filterable record for a sessions index — no payloads."""
-        return {
+        from .manifest.topology import topology_summary as _topology_summary
+
+        out: dict[str, Any] = {
             "schema_version": self.schema_version,
             "session_id": self.session_id,
             "trace_id": self.trace_id,
@@ -166,3 +276,7 @@ class Session(BaseModel):
             "subagents": self.totals.subagents,
             "errors": self.totals.errors,
         }
+        topo = _topology_summary(self.topology, self.manifest)
+        if topo is not None:
+            out["topology_summary"] = topo
+        return out

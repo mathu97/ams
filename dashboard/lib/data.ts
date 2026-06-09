@@ -1,7 +1,15 @@
+import { buildAgentDiagram } from "@/lib/build-agent-diagram"
 import type { AgentSummary, Session } from "@/lib/types"
-import { getSession as fetchSession, listSessions } from "@/lib/storage"
+import type { AgentDiagramData, Manifest } from "@/lib/types/graph"
+import {
+  getAgentRegistry,
+  getSession as fetchSession,
+  listSessionIndexes,
+  listSessions,
+} from "@/lib/storage"
 
 export type { AgentSummary, Event, Session, Status } from "@/lib/types"
+export type { AgentDiagramData } from "@/lib/types/graph"
 
 function aggregateAgents(sessions: Session[]): AgentSummary[] {
   const byName = new Map<string, Session[]>()
@@ -53,4 +61,27 @@ export async function getAgent(name: string): Promise<AgentSummary | undefined> 
 
 export async function getSession(id: string): Promise<Session | undefined> {
   return fetchSession(id)
+}
+
+export async function getAgentDiagram(agentName: string): Promise<AgentDiagramData | null> {
+  const registry = await getAgentRegistry(agentName)
+  const indexes = await listSessionIndexes()
+  const agentIndexes = indexes.filter((i) => i.agent?.name === agentName)
+  const summaries = agentIndexes
+    .map((i) => i.topology_summary)
+    .filter((s): s is NonNullable<typeof s> => Boolean(s))
+
+  let manifest: Manifest | null = registry?.manifest ?? null
+
+  if (!manifest && registry?.last_session_id) {
+    const session = await fetchSession(registry.last_session_id)
+    manifest = session?.manifest ?? null
+  }
+
+  return buildAgentDiagram(agentName, {
+    manifest,
+    topologySummaries: summaries,
+    registryObserved: registry?.observed ?? null,
+    sessionCount: registry?.session_count ?? agentIndexes.length,
+  })
 }

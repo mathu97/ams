@@ -7,10 +7,16 @@ from __future__ import annotations
 from typing import Any, AsyncIterator, Optional
 
 from .tracer import Tracer
+from .manifest.claude import extract_manifest_from_claude
 
 
 def instrument_options(options: Any, tracer: Tracer) -> Any:
     """Merge AMS hooks into an existing ClaudeAgentOptions, keeping any of yours."""
+    tracer.set_manifest(
+        extract_manifest_from_claude(
+            options, redact=tracer.redact, root_name=tracer.agent.name
+        )
+    )
     merged = dict(getattr(options, "hooks", None) or {})
     for name, matchers in tracer.hooks().items():
         merged[name] = list(merged.get(name, [])) + list(matchers)

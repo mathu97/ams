@@ -7,32 +7,171 @@ export type TimelineNode = {
   type: TimelineNodeType
   name: string
   status: Status
+  agentName: string
   duration_ms?: number | null
-  // content fields by type
   prompt?: string
   thinking?: string
   answerText?: string
   tool?: Event["tool"]
   subagent?: Event["subagent"]
-  // why a subagent was spawned
   why?: string
   agentType?: string
-  // nested tool calls (subagent only)
+  spawnVia?: string
+  delegationKind?: string
   children?: TimelineNode[]
 }
 
-/**
- * Transform the raw event stream into a readable timeline per the normalize rules:
- *  1. Collapse consecutive llm_message events sharing the same message_id.
- *  2. Merge "tool:Agent" (subagent invocation) with the subagent it spawned.
- *  3. Nest tool_calls whose parent_id points at a subagent under that subagent.
- *  4. (rendering concern) large tool.result collapsed by default.
- *  5. Last llm_message with non-empty text is the "answer".
- */
-export function buildTimeline(session: Session): TimelineNode[] {
-  const events = [...session.events].sort((a, b) => a.seq - b.seq)
+export type TimelineSection = {
+  key: string
+  agentName: string
+  role: "root" | "subagent"
+  parentAgentName?: string
+  spawnVia?: string
+  delegationKind?: string
+  duration_ms?: number | null
+  status: Status
+  why?: string
+  nodes: TimelineNode[]
+}
 
-  // Identify the answer event: last llm_message with non-empty text.
+export type TimelineGroup = {
+  key: string
+  agentName: string
+  entries: TimelineEntry[]
+}
+
+export type TimelineEntry =
+  | { kind: "nodes"; nodes: TimelineNode[] }
+  | { kind: "subagent"; section: TimelineSection }
+
+type BuildCtx = {
+  rootAgent: string
+  answerId: string | null
+  seenMessageIds: Set<string>
+  subagentByInvocation: Map<string, Event>
+  consumedSubagentIds: Set<string>
+}
+
+export function scopeAgentName(scope: string | null | undefined, fallback: string): string {
+  if (scope?.startsWith("agent:")) return scope.slice(6)
+  if (scope === "orchestrator") return fallback
+  if (scope?.startsWith("subagent:")) return scope.slice(9)
+  return fallback
+}
+
+export function buildTimelineSections(session: Session): TimelineSection[] {
+  const events = [...session.events].sort((a, b) => a.seq - b.seq)
+  const ctx = makeCtx(session, events)
+  const sections: TimelineSection[] = []
+  let rootNodes: TimelineNode[] = []
+
+  const flushRoot = () => {
+    if (rootNodes.length === 0) return
+    sections.push({
+      key: `root-${sections.length}`,
+      agentName: session.agent.name,
+      role: "root",
+      status: "ok",
+      nodes: rootNodes,
+    })
+    rootNodes = []
+  }
+
+  for (const e of events) {
+    if (e.type === "subagent") {
+      if (ctx.consumedSubagentIds.has(e.id)) continue
+      flushRoot()
+      sections.push(makeSubagentSection(e, undefined, events, ctx))
+      ctx.consumedSubagentIds.add(e.id)
+      continue
+    }
+
+    if (e.type === "tool_call" && e.parent_id) continue
+
+    if (e.type === "tool_call" && e.note === "subagent invocation") {
+      const sub = ctx.subagentByInvocation.get(e.id)
+      if (sub) {
+        ctx.consumedSubagentIds.add(sub.id)
+        flushRoot()
+        sections.push(makeSubagentSection(sub, e, events, ctx))
+        continue
+      }
+    }
+
+    if (belongsToSubagentScope(e, events, session.agent.name)) continue
+
+    const nodes = eventsToNodes([e], ctx, session.agent.name)
+    rootNodes.push(...nodes)
+  }
+
+  flushRoot()
+  return sections
+}
+
+export function groupTimelineSections(sections: TimelineSection[]): TimelineGroup[] {
+  const groups: TimelineGroup[] = []
+  let current: TimelineGroup | null = null
+
+  for (const section of sections) {
+    if (section.role === "root") {
+      if (current && current.agentName === section.agentName) {
+        current.entries.push({ kind: "nodes", nodes: section.nodes })
+      } else {
+        current = {
+          key: section.key,
+          agentName: section.agentName,
+          entries: [{ kind: "nodes", nodes: section.nodes }],
+        }
+        groups.push(current)
+      }
+      continue
+    }
+
+    if (!current) {
+      current = {
+        key: `orphan-${section.key}`,
+        agentName: section.parentAgentName ?? "agent",
+        entries: [],
+      }
+      groups.push(current)
+    }
+    current.entries.push({ kind: "subagent", section })
+  }
+
+  return groups
+}
+
+/** @deprecated use buildTimelineSections */
+export function buildTimeline(session: Session): TimelineNode[] {
+  return buildTimelineSections(session).flatMap((s) =>
+    s.role === "subagent"
+      ? [
+          {
+            key: s.key,
+            type: "subagent" as const,
+            name: s.agentName,
+            agentName: s.agentName,
+            status: s.status,
+            duration_ms: s.duration_ms,
+            why: s.why,
+            agentType: s.agentName,
+            spawnVia: s.spawnVia,
+            delegationKind: s.delegationKind,
+            children: s.nodes,
+          },
+        ]
+      : s.nodes,
+  )
+}
+
+function makeCtx(session: Session, events: Event[]): BuildCtx {
+  const subagentByInvocation = new Map<string, Event>()
+  for (const e of events) {
+    if (e.type === "subagent" && e.subagent?.invocation_event_id) {
+      subagentByInvocation.set(e.subagent.invocation_event_id, e)
+    }
+  }
+
   let answerId: string | null = null
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]
@@ -42,59 +181,85 @@ export function buildTimeline(session: Session): TimelineNode[] {
     }
   }
 
-  // Map subagent events by id, and by their invocation_event_id (the Agent tool).
-  const subagentByInvocation = new Map<string, Event>()
-  for (const e of events) {
-    if (e.type === "subagent" && e.subagent?.invocation_event_id) {
-      subagentByInvocation.set(e.subagent.invocation_event_id, e)
-    }
+  return {
+    rootAgent: session.agent.name,
+    answerId,
+    seenMessageIds: new Set<string>(),
+    subagentByInvocation,
+    consumedSubagentIds: new Set<string>(),
   }
+}
 
-  // Group child tool calls under their parent subagent id.
-  const childrenBySubagent = new Map<string, Event[]>()
-  for (const e of events) {
-    if (e.type === "tool_call" && e.parent_id) {
-      const arr = childrenBySubagent.get(e.parent_id) ?? []
-      arr.push(e)
-      childrenBySubagent.set(e.parent_id, arr)
-    }
+function belongsToSubagentScope(e: Event, events: Event[], rootAgent: string): boolean {
+  if (!e.scope?.startsWith("agent:")) return false
+  const scopedAgent = scopeAgentName(e.scope, rootAgent)
+  if (scopedAgent === rootAgent) return false
+
+  return events.some((sub) => {
+    if (sub.type !== "subagent") return false
+    const subName = sub.subagent?.agent_type ?? sub.subagent?.target_agent
+    return subName === scopedAgent
+  })
+}
+
+function makeSubagentSection(
+  sub: Event,
+  invocation: Event | undefined,
+  events: Event[],
+  ctx: BuildCtx,
+): TimelineSection {
+  const agentName = sub.subagent?.agent_type ?? sub.subagent?.target_agent ?? sub.name
+  const innerEvents = collectSubagentInnerEvents(sub, events)
+  const innerNodes = eventsToNodes(innerEvents, ctx, agentName)
+
+  const why =
+    sub.subagent?.invocation_prompt ??
+    (invocation?.tool?.input as { prompt?: string } | undefined)?.prompt
+
+  const parentAgentName = invocation
+    ? scopeAgentName(invocation.scope, ctx.rootAgent)
+    : ctx.rootAgent
+
+  return {
+    key: sub.id,
+    agentName,
+    role: "subagent",
+    parentAgentName,
+    spawnVia: invocation?.tool?.name,
+    delegationKind: sub.subagent?.delegation_kind ?? "invoke",
+    duration_ms: sub.duration_ms ?? invocation?.duration_ms,
+    status: sub.status,
+    why,
+    nodes: innerNodes,
   }
+}
 
+function collectSubagentInnerEvents(sub: Event, events: Event[]): Event[] {
+  const agentType = sub.subagent?.agent_type ?? sub.subagent?.target_agent
+  const scope = agentType ? `agent:${agentType}` : null
+
+  return events.filter((e) => {
+    if (e.id === sub.id) return false
+    if (e.parent_id === sub.id) return true
+    if (scope && e.scope === scope && e.type !== "subagent" && e.note !== "subagent invocation") {
+      return true
+    }
+    return false
+  })
+}
+
+function eventsToNodes(events: Event[], ctx: BuildCtx, defaultAgent: string): TimelineNode[] {
   const nodes: TimelineNode[] = []
-  const seenMessageIds = new Set<string>()
-  const consumedSubagentIds = new Set<string>()
 
   for (const e of events) {
-    // Skip subagent events that will be merged via their invocation tool.
-    if (e.type === "subagent") {
-      if (!consumedSubagentIds.has(e.id)) {
-        // Subagent without a matching Agent tool — render standalone.
-        nodes.push(makeSubagentNode(e, childrenBySubagent))
-        consumedSubagentIds.add(e.id)
-      }
-      continue
-    }
-
-    // Skip tool calls nested under a subagent (rule #3) — rendered as children.
-    if (e.type === "tool_call" && e.parent_id) {
-      continue
-    }
-
-    // Merge "tool:Agent" subagent invocation with the spawned subagent (rule #2).
-    if (e.type === "tool_call" && e.note === "subagent invocation") {
-      const sub = subagentByInvocation.get(e.id)
-      if (sub) {
-        consumedSubagentIds.add(sub.id)
-        nodes.push(makeSubagentNode(sub, childrenBySubagent, e))
-        continue
-      }
-    }
+    const agentName = scopeAgentName(e.scope, defaultAgent)
 
     if (e.type === "tool_call") {
       nodes.push({
         key: e.id,
         type: "tool",
         name: e.tool?.name ? `tool:${e.tool.name}` : e.name,
+        agentName,
         status: e.tool?.is_error ? "error" : e.status,
         duration_ms: e.duration_ms,
         tool: e.tool,
@@ -107,6 +272,7 @@ export function buildTimeline(session: Session): TimelineNode[] {
         key: e.id,
         type: "prompt",
         name: "prompt",
+        agentName: ctx.rootAgent,
         status: e.status,
         prompt: e.prompt,
       })
@@ -114,72 +280,36 @@ export function buildTimeline(session: Session): TimelineNode[] {
     }
 
     if (e.type === "llm_message") {
-      // rule #5: answer
-      if (e.id === answerId) {
+      if (e.id === ctx.answerId) {
         nodes.push({
           key: e.id,
           type: "answer",
           name: "answer",
+          agentName: scopeAgentName(e.scope, ctx.rootAgent),
           status: e.status,
           answerText: e.llm?.text,
         })
         continue
       }
 
-      // rule #1: collapse consecutive messages sharing a message_id.
       const mid = e.llm?.message_id
       if (mid) {
-        if (seenMessageIds.has(mid)) continue
-        seenMessageIds.add(mid)
+        if (ctx.seenMessageIds.has(mid)) continue
+        ctx.seenMessageIds.add(mid)
       }
 
-      // Only render thinking rows that actually carry reasoning.
       if (e.llm?.thinking && e.llm.thinking.trim()) {
         nodes.push({
           key: e.id,
           type: "thinking",
           name: "thinking",
+          agentName,
           status: e.status,
           thinking: e.llm.thinking,
         })
       }
-      continue
     }
   }
 
   return nodes
-}
-
-function makeSubagentNode(
-  sub: Event,
-  childrenBySubagent: Map<string, Event[]>,
-  invocation?: Event,
-): TimelineNode {
-  const childEvents = childrenBySubagent.get(sub.id) ?? []
-  const children: TimelineNode[] = childEvents
-    .sort((a, b) => a.seq - b.seq)
-    .map((c) => ({
-      key: c.id,
-      type: "tool" as const,
-      name: c.tool?.name ? `tool:${c.tool.name}` : c.name,
-      status: c.tool?.is_error ? "error" : c.status,
-      duration_ms: c.duration_ms,
-      tool: c.tool,
-    }))
-
-  const why =
-    sub.subagent?.invocation_prompt ??
-    (invocation?.tool?.input as { prompt?: string } | undefined)?.prompt
-
-  return {
-    key: sub.id,
-    type: "subagent",
-    name: sub.subagent?.agent_type ?? sub.name,
-    status: sub.status,
-    duration_ms: sub.duration_ms ?? invocation?.duration_ms,
-    subagent: sub.subagent,
-    agentType: sub.subagent?.agent_type,
-    why,
-    children,
-  }
 }
