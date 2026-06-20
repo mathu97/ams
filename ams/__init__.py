@@ -12,10 +12,12 @@ cost — as one readable JSON object in blob storage.
 
 from .schema import (
     SCHEMA_VERSION,
+    Activity,
     Agent,
     DelegationKind,
     Event,
     EventType,
+    FacetMember,
     GraphEdge,
     GraphEdgeKind,
     GraphNode,
@@ -29,13 +31,19 @@ from .schema import (
     Totals,
     Usage,
 )
+from .emit import emit_activity
+from .timeline import load_entity_timeline
 from .tracer import Tracer
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Tracer",
+    "emit_activity",
+    "load_entity_timeline",
     "Session",
+    "Activity",
+    "FacetMember",
     "Event",
     "EventType",
     "Status",

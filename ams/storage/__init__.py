@@ -1,11 +1,12 @@
-"""Pluggable storage. A backend just needs to accept a finished Session."""
+"""Pluggable storage. A backend accepts finished Sessions, standalone
+Activities, and the facet pointers that group both into browsable entities."""
 
 from __future__ import annotations
 
 import os
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
-from ..schema import Session
+from ..schema import Activity, FacetMember, Session
 from .local import LocalStorage
 from .s3 import S3Storage
 
@@ -13,6 +14,13 @@ from .s3 import S3Storage
 @runtime_checkable
 class Storage(Protocol):
     def put_session(self, session: Session) -> str: ...
+    def put_activity(self, activity: Activity) -> str: ...
+    def put_facet_member(self, facet: str, value: str, member: FacetMember) -> str: ...
+    def list_facet_values(self, facet: str) -> list[str]: ...
+    def list_facet_members(self, facet: str, value: str) -> list[FacetMember]: ...
+    def read_record(self, key: str) -> Optional[dict]: ...
+    def session_key(self, session: Session) -> str: ...
+    def activity_key(self, activity: Activity) -> str: ...
 
 
 def from_env() -> Storage:
