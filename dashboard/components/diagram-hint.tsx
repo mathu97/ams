@@ -21,6 +21,47 @@ function measureAnchor(el: HTMLElement): TooltipCoords {
   }
 }
 
+function coordsFromPoint(x: number, y: number): TooltipCoords {
+  const spaceBelow = window.innerHeight - y
+  const above = spaceBelow < 100 && y > 100
+  return {
+    top: above ? y - 6 : y + 6,
+    left: x,
+    above,
+  }
+}
+
+export function DiagramTooltip({
+  hint,
+  coords,
+  id,
+}: {
+  hint: HintContent
+  coords: TooltipCoords
+  id?: string
+}) {
+  return createPortal(
+    <div
+      id={id}
+      role="tooltip"
+      style={{
+        top: coords.top,
+        left: coords.left,
+        transform: coords.above ? "translate(-50%, -100%)" : "translateX(-50%)",
+      }}
+      className="pointer-events-none fixed z-[1000] w-max max-w-[240px] rounded-md border border-border bg-popover px-2.5 py-2 text-popover-foreground shadow-md"
+    >
+      <p className="text-[11px] font-medium text-foreground">{hint.title}</p>
+      <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-muted-foreground">
+        {hint.lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    </div>,
+    document.body,
+  )
+}
+
 export function DiagramHint({
   hint,
   children,
@@ -63,43 +104,24 @@ export function DiagramHint({
     }
   }, [open, updateCoords])
 
-  const tooltip =
-    open && mounted && coords
-      ? createPortal(
-          <div
-            id={id}
-            role="tooltip"
-            style={{
-              top: coords.top,
-              left: coords.left,
-              transform: coords.above ? "translate(-50%, -100%)" : "translateX(-50%)",
-            }}
-            className="pointer-events-none fixed z-50 w-max max-w-[240px] rounded-md border border-border bg-popover px-2.5 py-2 text-popover-foreground shadow-md"
-          >
-            <p className="text-[11px] font-medium text-foreground">{hint.title}</p>
-            <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-muted-foreground">
-              {hint.lines.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </div>,
-          document.body,
-        )
-      : null
-
   return (
     <>
       <div
         ref={anchorRef}
-        className={className}
+        className={`cursor-help ${className}`}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}
         onBlur={hide}
       >
-      <div aria-describedby={open ? id : undefined}>{children}</div>
+        <div aria-describedby={open ? id : undefined}>{children}</div>
       </div>
-      {tooltip}
+      {open && mounted && coords ? (
+        <DiagramTooltip hint={hint} coords={coords} id={id} />
+      ) : null}
     </>
   )
 }
+
+export { coordsFromPoint }
+export type { TooltipCoords }

@@ -17,9 +17,16 @@ function topologyToSummary(topology: Topology): TopologySummary {
 }
 
 export function buildSessionDiagram(session: Session): AgentDiagramData | null {
-  if (!session.manifest?.graph) return null
-  return buildAgentDiagram(session.agent.name, {
-    manifest: session.manifest,
-    topologySummaries: session.topology ? [topologyToSummary(session.topology)] : undefined,
-  })
+  if (session.manifest?.graph) {
+    return buildAgentDiagram(session.agent.name, {
+      manifest: session.manifest,
+      topologySummaries: session.topology ? [topologyToSummary(session.topology)] : undefined,
+    })
+  }
+  if (session.topology) {
+    return buildAgentDiagram(session.agent.name, {
+      topologySummaries: [topologyToSummary(session.topology)],
+    })
+  }
+  return null
 }

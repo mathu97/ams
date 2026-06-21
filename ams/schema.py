@@ -280,3 +280,61 @@ class Session(BaseModel):
         if topo is not None:
             out["topology_summary"] = topo
         return out
+
+
+class Activity(BaseModel):
+    """A standalone, session-less event correlated by facets.
+
+    A Session is one traced agent run, built up in memory and written once.
+    An Activity is the opposite shape: a single point-in-time event emitted
+    by any source — a backend job, a webhook, a human action — that doesn't
+    live inside an agent session. Activities are grouped into browsable
+    entities (a thread, a tenant, a customer) purely through facet keys in
+    `metadata`; AMS treats those keys as opaque and has no built-in notion
+    of what they mean.
+    """
+
+    schema_version: str = SCHEMA_VERSION
+    id: str
+    source: str
+    type: str
+    name: str
+    timestamp: str
+    status: Status = Status.OK
+    environment: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    note: Optional[str] = None
+
+    def summary(self) -> dict[str, Any]:
+        """A compact, payload-free record for a facet member pointer."""
+        return {
+            "schema_version": self.schema_version,
+            "kind": "activity",
+            "id": self.id,
+            "source": self.source,
+            "type": self.type,
+            "name": self.name,
+            "timestamp": self.timestamp,
+            "status": self.status.value,
+            "environment": self.environment,
+            "tags": self.tags,
+            "metadata": self.metadata,
+        }
+
+
+class FacetMember(BaseModel):
+    """A pointer object under facets/{key}/{value}/members/.
+
+    Append-only — one object per (entity, member) — so concurrent writers
+    never collide. `kind` says what the member is (a session or an
+    activity) and `ref` is its id so a reader can fetch the full record.
+    """
+
+    kind: str
+    ref: str
+    ref_key: Optional[str] = None
+    timestamp: str
+    status: Status = Status.OK
+    summary: dict[str, Any] = Field(default_factory=dict)

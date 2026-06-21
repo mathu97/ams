@@ -64,6 +64,7 @@ class Tracer:
         environment: Optional[str] = None,
         tags: Optional[list[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
+        index_facets: Optional[list[str]] = None,
         redact: Optional[bool] = None,
         capture_thinking: bool = True,
     ):
@@ -72,6 +73,7 @@ class Tracer:
         self.environment = environment
         self.tags = tags or []
         self.metadata = metadata or {}
+        self.index_facets = index_facets or []
         if redact is None:
             import os
 
@@ -423,7 +425,31 @@ class Tracer:
             logger.info("ams: wrote session %s -> %s", session.session_id, location)
         except Exception:
             logger.exception("ams: failed to persist session %s", session.session_id)
+
+        self._index_facets(session)
         return session
+
+    def _index_facets(self, session: Session) -> None:
+        """Fan out a facet member pointer per configured facet so this session
+        is discoverable alongside backend activities under the same entity."""
+        from .facets import facet_pairs
+        from .schema import FacetMember
+
+        for key, value in facet_pairs(self.metadata, self.index_facets):
+            try:
+                member = FacetMember(
+                    kind="session",
+                    ref=session.session_id,
+                    ref_key=self.storage.session_key(session),
+                    timestamp=session.end_time or session.start_time,
+                    status=session.status,
+                    summary=session.summary(),
+                )
+                self.storage.put_facet_member(key, value, member)
+            except Exception:
+                logger.exception(
+                    "ams: failed to index session %s facet %s", session.session_id, key
+                )
 
     def _compute_totals(self, events: list[Event]) -> Totals:
         totals = Totals()
