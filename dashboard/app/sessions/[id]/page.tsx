@@ -2,13 +2,14 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { TopBar } from "@/components/top-bar"
-import { AgentDiagram } from "@/components/agent-diagram"
+import { SessionReplayDiagram } from "@/components/session-replay-diagram"
 import { SessionHeader } from "@/components/session-header"
 import { StatCards } from "@/components/stat-cards"
 import { Timeline } from "@/components/timeline"
 import { getSession } from "@/lib/data"
 import { buildSessionDiagram } from "@/lib/session-diagram"
 import { buildTimelineSections, groupTimelineSections } from "@/lib/timeline"
+import { getDataSource } from "@/lib/storage/config"
 
 export const dynamic = "force-dynamic"
 
@@ -26,7 +27,7 @@ export default async function SessionDetailPage({
 
   return (
     <main className="min-h-screen">
-      <TopBar active="agents" />
+      <TopBar active="agents" dataSource={getDataSource()} />
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-8">
         <Link
           href={`/agents/${encodeURIComponent(session.agent.name)}`}
@@ -38,7 +39,7 @@ export default async function SessionDetailPage({
 
         <SessionHeader session={session} />
         <StatCards session={session} />
-        {diagram && <AgentDiagram data={diagram} />}
+        {diagram && <SessionReplayDiagram session={session} data={diagram} />}
         <Timeline groups={groups} />
       </div>
     </main>

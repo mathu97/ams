@@ -1,8 +1,17 @@
-import Link from "next/link"
-import { getDataSource } from "@/lib/storage/config"
+"use client"
 
-export function TopBar({ active }: { active?: "agents" }) {
-  const source = getDataSource()
+import Link from "next/link"
+
+export function TopBar({
+  active,
+  dataSource,
+}: {
+  active?: "agents"
+  /** Server-provided label avoids client env / hydration mismatch */
+  dataSource?: string
+}) {
+  const source = dataSource ?? "…"
+
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background">
       <div className="mx-auto flex h-12 max-w-6xl items-center gap-6 px-6">
@@ -31,8 +40,6 @@ export function TopBar({ active }: { active?: "agents" }) {
             {source}
           </span>
           <span className="hidden md:inline">Docs</span>
-          <span className="h-4 w-px bg-border" aria-hidden />
-          <span className="text-foreground">mathusan@crashlabs.ai</span>
         </div>
       </div>
     </header>

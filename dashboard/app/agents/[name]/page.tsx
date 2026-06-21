@@ -5,6 +5,7 @@ import { TopBar } from "@/components/top-bar"
 import { AgentDiagram } from "@/components/agent-diagram"
 import { SessionsTable } from "@/components/sessions-table"
 import { getAgent, getAgentDiagram, getSessionsByAgent } from "@/lib/data"
+import { getDataSource } from "@/lib/storage/config"
 
 export const dynamic = "force-dynamic"
 
@@ -19,7 +20,7 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
 
   return (
     <main className="min-h-screen">
-      <TopBar active="agents" />
+      <TopBar active="agents" dataSource={getDataSource()} />
       <div className="mx-auto max-w-6xl px-6 py-8">
         <Link
           href="/"
