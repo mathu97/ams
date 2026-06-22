@@ -126,3 +126,46 @@ export type SessionIndex = {
   errors?: number
   topology_summary?: import("@/lib/types/graph").TopologySummary
 }
+
+export type Activity = {
+  schema_version?: string
+  id: string
+  source: string
+  type: string
+  name: string
+  timestamp: string
+  status: Status
+  environment?: string
+  tags?: string[]
+  metadata?: Record<string, string>
+  attributes?: Record<string, unknown>
+  note?: string
+}
+
+export type FacetMember = {
+  kind: "session" | "activity"
+  ref: string
+  ref_key?: string
+  timestamp: string
+  status: Status
+  summary: Record<string, unknown>
+}
+
+export type EntityTimelineItem = {
+  kind: "session" | "activity"
+  ref: string
+  timestamp: string
+  status: Status
+  member: FacetMember
+  activity?: Activity
+}
+
+export type FacetEntity = {
+  facet: string
+  value: string
+  member_count: number
+  session_count: number
+  activity_count: number
+  last_activity?: string
+  last_label?: string
+}
