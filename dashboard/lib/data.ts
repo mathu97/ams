@@ -1,4 +1,5 @@
 import { buildAgentDiagram } from "@/lib/build-agent-diagram"
+import { cached } from "@/lib/cache"
 import type {
   Activity,
   AgentSummary,
@@ -6,8 +7,9 @@ import type {
   FacetEntity,
   FacetMember,
   Session,
+  SessionIndex,
 } from "@/lib/types"
-import type { AgentDiagramData, Manifest } from "@/lib/types/graph"
+import type { AgentDiagramData, AgentRegistry, Manifest } from "@/lib/types/graph"
 import {
   getActivity,
   getAgentRegistry,
@@ -18,6 +20,21 @@ import {
   listSessionIndexes,
   listSessions,
 } from "@/lib/storage"
+
+// Cached storage reads. Each S3 fan-out (one GET per session index / facet
+// member) is paid once per cache window and shared across requests, instead of
+// re-fetched on every page load. Keys must be stable per logical read.
+const cachedListSessions = (): Promise<Session[]> =>
+  cached("sessions", listSessions)
+
+const cachedListSessionIndexes = (): Promise<SessionIndex[]> =>
+  cached("session-indexes", listSessionIndexes)
+
+const cachedRegistry = (name: string): Promise<AgentRegistry | undefined> =>
+  cached(`registry:${name}`, () => getAgentRegistry(name))
+
+const cachedSession = (id: string): Promise<Session | undefined> =>
+  cached(`session:${id}`, () => fetchSession(id))
 
 export type { AgentSummary, Event, Session, Status } from "@/lib/types"
 export type { AgentDiagramData } from "@/lib/types/graph"
@@ -65,11 +82,11 @@ function aggregateAgents(sessions: Session[]): AgentSummary[] {
 }
 
 export async function getAgents(): Promise<AgentSummary[]> {
-  return aggregateAgents(await listSessions())
+  return aggregateAgents(await cachedListSessions())
 }
 
 export async function getSessionsByAgent(name: string): Promise<Session[]> {
-  return (await listSessions()).filter((s) => s.agent.name === name)
+  return (await cachedListSessions()).filter((s) => s.agent.name === name)
 }
 
 export async function getAgent(name: string): Promise<AgentSummary | undefined> {
@@ -77,12 +94,12 @@ export async function getAgent(name: string): Promise<AgentSummary | undefined> 
 }
 
 export async function getSession(id: string): Promise<Session | undefined> {
-  return fetchSession(id)
+  return cachedSession(id)
 }
 
 export async function getAgentDiagram(agentName: string): Promise<AgentDiagramData | null> {
-  const registry = await getAgentRegistry(agentName)
-  const indexes = await listSessionIndexes()
+  const registry = await cachedRegistry(agentName)
+  const indexes = await cachedListSessionIndexes()
   const agentIndexes = indexes.filter((i) => i.agent?.name === agentName)
   const summaries = agentIndexes
     .map((i) => i.topology_summary)
@@ -91,7 +108,7 @@ export async function getAgentDiagram(agentName: string): Promise<AgentDiagramDa
   let manifest: Manifest | null = registry?.manifest ?? null
 
   if (!manifest && registry?.last_session_id) {
-    const session = await fetchSession(registry.last_session_id)
+    const session = await cachedSession(registry.last_session_id)
     manifest = session?.manifest ?? null
   }
 
@@ -128,58 +145,61 @@ function rollupFacetEntity(facet: string, value: string, members: FacetMember[])
 }
 
 export async function getFacetEntities(facet: string): Promise<FacetEntity[]> {
-  const values = await listFacetValues(facet)
-  const entities = await Promise.all(
-    values.map(async (value) => {
-      const members = await listFacetMembers(facet, value)
-      return rollupFacetEntity(facet, value, members)
-    }),
-  )
-  return entities.sort(
-    (a, b) =>
-      new Date(b.last_activity ?? 0).getTime() - new Date(a.last_activity ?? 0).getTime(),
-  )
+  return cached(`facet-entities:${facet}`, async () => {
+    const values = await listFacetValues(facet)
+    const entities = await Promise.all(
+      values.map(async (value) => {
+        const members = await listFacetMembers(facet, value)
+        return rollupFacetEntity(facet, value, members)
+      }),
+    )
+    return entities.sort(
+      (a, b) =>
+        new Date(b.last_activity ?? 0).getTime() - new Date(a.last_activity ?? 0).getTime(),
+    )
+  })
 }
 
 export async function getFacetSummaries(): Promise<FacetSummary[]> {
-  const facets = await listFacetKeys()
-  const summaries = await Promise.all(
-    facets.map(async (facet) => ({
-      facet,
-      entity_count: (await listFacetValues(facet)).length,
-    })),
-  )
-  return summaries.sort((a, b) => a.facet.localeCompare(b.facet))
+  return cached("facet-summaries", async () => {
+    const facets = await listFacetKeys()
+    const summaries = await Promise.all(
+      facets.map(async (facet) => ({
+        facet,
+        entity_count: (await listFacetValues(facet)).length,
+      })),
+    )
+    return summaries.sort((a, b) => a.facet.localeCompare(b.facet))
+  })
 }
 
 export async function getEntityTimeline(
   facet: string,
   value: string,
 ): Promise<EntityTimelineItem[]> {
-  const members = await listFacetMembers(facet, value)
-  const items: EntityTimelineItem[] = []
-
-  for (const member of members) {
-    if (member.kind === "activity") {
-      const activity = await getActivity(member.ref)
-      items.push({
-        kind: "activity",
-        ref: member.ref,
-        timestamp: member.timestamp,
-        status: member.status,
-        member,
-        activity,
-      })
-    } else {
-      items.push({
-        kind: "session",
-        ref: member.ref,
-        timestamp: member.timestamp,
-        status: member.status,
-        member,
-      })
-    }
-  }
-
-  return items.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  return cached(`timeline:${facet}:${value}`, async () => {
+    const members = await listFacetMembers(facet, value)
+    const items: EntityTimelineItem[] = await Promise.all(
+      members.map(async (member): Promise<EntityTimelineItem> => {
+        if (member.kind === "activity") {
+          return {
+            kind: "activity",
+            ref: member.ref,
+            timestamp: member.timestamp,
+            status: member.status,
+            member,
+            activity: await getActivity(member.ref),
+          }
+        }
+        return {
+          kind: "session",
+          ref: member.ref,
+          timestamp: member.timestamp,
+          status: member.status,
+          member,
+        }
+      }),
+    )
+    return items.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  })
 }
