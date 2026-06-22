@@ -99,6 +99,46 @@ class LocalStorage:
         except Exception:
             return None
 
+    def get_session(self, session_id: str) -> Optional[Session]:
+        index = self.read_record(f"index/{session_id}.json")
+        if index is None:
+            return None
+        date = str(index.get("start_time", ""))[:10].replace("-", "/")
+        raw = self.read_record(f"sessions/{date}/{session_id}.json")
+        if raw is None:
+            return None
+        try:
+            return Session.model_validate(raw)
+        except Exception:
+            return None
+
+    def list_session_indexes(self) -> list[dict]:
+        index_dir = self.root / "index"
+        if not index_dir.is_dir():
+            return []
+        out: list[dict] = []
+        for file in index_dir.glob("*.json"):
+            rec = self.read_record(f"index/{file.name}")
+            if rec is not None:
+                out.append(rec)
+        return out
+
+    def get_agent_registry(self, agent_name: str) -> Optional[dict]:
+        from urllib.parse import quote
+
+        return self.read_record(f"agents/{quote(agent_name, safe='')}.json")
+
+    def list_agent_registries(self) -> list[dict]:
+        agents_dir = self.root / "agents"
+        if not agents_dir.is_dir():
+            return []
+        out: list[dict] = []
+        for file in agents_dir.glob("*.json"):
+            rec = self.read_record(f"agents/{file.name}")
+            if rec is not None:
+                out.append(rec)
+        return out
+
     def _upsert_agent_registry(self, session: Session) -> None:
         agent_name = session.agent.name
         if not agent_name:

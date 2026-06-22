@@ -118,6 +118,38 @@ class S3Storage:
         except Exception:
             return None
 
+    def get_session(self, session_id: str) -> Optional[Session]:
+        index = self.read_record(f"{self.prefix}/index/{session_id}.json")
+        if index is None:
+            return None
+        date = str(index.get("start_time", ""))[:10].replace("-", "/")
+        raw = self.read_record(f"{self.prefix}/sessions/{date}/{session_id}.json")
+        if raw is None:
+            return None
+        try:
+            return Session.model_validate(raw)
+        except Exception:
+            return None
+
+    def list_session_indexes(self) -> list[dict]:
+        out: list[dict] = []
+        for key in self._list_keys(f"{self.prefix}/index/"):
+            rec = self.read_record(key)
+            if rec is not None:
+                out.append(rec)
+        return out
+
+    def get_agent_registry(self, agent_name: str) -> Optional[dict]:
+        return self.read_record(agent_registry_key(self.prefix, agent_name))
+
+    def list_agent_registries(self) -> list[dict]:
+        out: list[dict] = []
+        for key in self._list_keys(f"{self.prefix}/agents/"):
+            rec = self.read_record(key)
+            if rec is not None:
+                out.append(rec)
+        return out
+
     def _list_common_prefixes(self, prefix: str) -> list[str]:
         out: list[str] = []
         token: Optional[str] = None
