@@ -6,7 +6,7 @@ export function TopBar({
   active,
   dataSource,
 }: {
-  active?: "agents"
+  active?: "agents" | "facets"
   /** Server-provided label avoids client env / hydration mismatch */
   dataSource?: string
 }) {
@@ -32,6 +32,16 @@ export function TopBar({
             }
           >
             Agents
+          </Link>
+          <Link
+            href="/facets"
+            className={
+              active === "facets"
+                ? "text-foreground underline decoration-peach decoration-2 underline-offset-[6px]"
+                : "text-muted-foreground hover:text-foreground"
+            }
+          >
+            Facets
           </Link>
         </nav>
 

@@ -1,7 +1,19 @@
 import type { Session } from "@/lib/types"
 import type { AgentRegistry } from "@/lib/types/graph"
-import type { SessionIndex } from "@/lib/types"
+import type { Activity, FacetMember, SessionIndex } from "@/lib/types"
 import { getDataSource } from "./config"
+import {
+  getActivityFromLocal,
+  listFacetKeysFromLocal,
+  listFacetMembersFromLocal,
+  listFacetValuesFromLocal,
+} from "./facets-local"
+import {
+  getActivityFromS3,
+  listFacetKeysFromS3,
+  listFacetMembersFromS3,
+  listFacetValuesFromS3,
+} from "./facets-s3"
 import {
   getSessionFromLocal,
   listSessionIndexesFromLocal,
@@ -48,6 +60,45 @@ export async function getSession(sessionId: string): Promise<Session | undefined
       return getSessionFromS3(sessionId)
     case "local":
       return getSessionFromLocal(sessionId)
+  }
+}
+
+export async function listFacetKeys(): Promise<string[]> {
+  switch (getDataSource()) {
+    case "s3":
+      return listFacetKeysFromS3()
+    case "local":
+      return listFacetKeysFromLocal()
+  }
+}
+
+export async function listFacetValues(facet: string): Promise<string[]> {
+  switch (getDataSource()) {
+    case "s3":
+      return listFacetValuesFromS3(facet)
+    case "local":
+      return listFacetValuesFromLocal(facet)
+  }
+}
+
+export async function listFacetMembers(
+  facet: string,
+  value: string,
+): Promise<FacetMember[]> {
+  switch (getDataSource()) {
+    case "s3":
+      return listFacetMembersFromS3(facet, value)
+    case "local":
+      return listFacetMembersFromLocal(facet, value)
+  }
+}
+
+export async function getActivity(id: string): Promise<Activity | undefined> {
+  switch (getDataSource()) {
+    case "s3":
+      return getActivityFromS3(id)
+    case "local":
+      return getActivityFromLocal(id)
   }
 }
 

@@ -1,15 +1,32 @@
 import { buildAgentDiagram } from "@/lib/build-agent-diagram"
-import type { AgentSummary, Session } from "@/lib/types"
+import type {
+  Activity,
+  AgentSummary,
+  EntityTimelineItem,
+  FacetEntity,
+  FacetMember,
+  Session,
+} from "@/lib/types"
 import type { AgentDiagramData, Manifest } from "@/lib/types/graph"
 import {
+  getActivity,
   getAgentRegistry,
   getSession as fetchSession,
+  listFacetKeys,
+  listFacetMembers,
+  listFacetValues,
   listSessionIndexes,
   listSessions,
 } from "@/lib/storage"
 
 export type { AgentSummary, Event, Session, Status } from "@/lib/types"
 export type { AgentDiagramData } from "@/lib/types/graph"
+export type { Activity, EntityTimelineItem, FacetEntity, FacetMember } from "@/lib/types"
+
+export type FacetSummary = {
+  facet: string
+  entity_count: number
+}
 
 function aggregateAgents(sessions: Session[]): AgentSummary[] {
   const byName = new Map<string, Session[]>()
@@ -84,4 +101,85 @@ export async function getAgentDiagram(agentName: string): Promise<AgentDiagramDa
     registryObserved: registry?.observed ?? null,
     sessionCount: registry?.session_count ?? agentIndexes.length,
   })
+}
+
+function memberLabel(member: FacetMember): string {
+  const summary = member.summary
+  if (typeof summary.name === "string" && summary.name) return summary.name
+  if (typeof summary.type === "string" && summary.type) return summary.type
+  const agent = summary.agent as { name?: string } | undefined
+  if (agent?.name) return agent.name
+  return member.ref
+}
+
+function rollupFacetEntity(facet: string, value: string, members: FacetMember[]): FacetEntity {
+  const session_count = members.filter((m) => m.kind === "session").length
+  const activity_count = members.filter((m) => m.kind === "activity").length
+  const last = members[members.length - 1]
+  return {
+    facet,
+    value,
+    member_count: members.length,
+    session_count,
+    activity_count,
+    last_activity: last?.timestamp,
+    last_label: last ? memberLabel(last) : undefined,
+  }
+}
+
+export async function getFacetEntities(facet: string): Promise<FacetEntity[]> {
+  const values = await listFacetValues(facet)
+  const entities = await Promise.all(
+    values.map(async (value) => {
+      const members = await listFacetMembers(facet, value)
+      return rollupFacetEntity(facet, value, members)
+    }),
+  )
+  return entities.sort(
+    (a, b) =>
+      new Date(b.last_activity ?? 0).getTime() - new Date(a.last_activity ?? 0).getTime(),
+  )
+}
+
+export async function getFacetSummaries(): Promise<FacetSummary[]> {
+  const facets = await listFacetKeys()
+  const summaries = await Promise.all(
+    facets.map(async (facet) => ({
+      facet,
+      entity_count: (await listFacetValues(facet)).length,
+    })),
+  )
+  return summaries.sort((a, b) => a.facet.localeCompare(b.facet))
+}
+
+export async function getEntityTimeline(
+  facet: string,
+  value: string,
+): Promise<EntityTimelineItem[]> {
+  const members = await listFacetMembers(facet, value)
+  const items: EntityTimelineItem[] = []
+
+  for (const member of members) {
+    if (member.kind === "activity") {
+      const activity = await getActivity(member.ref)
+      items.push({
+        kind: "activity",
+        ref: member.ref,
+        timestamp: member.timestamp,
+        status: member.status,
+        member,
+        activity,
+      })
+    } else {
+      items.push({
+        kind: "session",
+        ref: member.ref,
+        timestamp: member.timestamp,
+        status: member.status,
+        member,
+      })
+    }
+  }
+
+  return items.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
